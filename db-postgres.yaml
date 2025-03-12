@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/instance: db-postgres
+  name: db-postgres
+  namespace: dify
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: db-postgres
+  name: db-postgres
+  namespace: dify
+rules:
+- apiGroups:
+  - "*"
+  resources:
+  - "*"
+  verbs:
+  - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: db-postgres
+  name: db-postgres
+  namespace: dify
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: db-postgres
+subjects:
+- kind: ServiceAccount
+  name: db-postgres
+
+# db Postgres Credentials
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-credentials
+  namespace: dify
+type: Opaque
+stringData:
+  pg-username: "postgres"
+  pg-password: "nanmu2025"
+  pg-host: "db-postgres.dify.svc.cluster.local"
+  pg-port: "5432"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db-postgres
+  namespace: dify
+spec:
+  selector:
+    matchLabels:
+      app: db-postgres 
+  serviceName: "db-postgres"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: db-postgres
+    spec:
+      serviceAccountName: db-postgres
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: db-postgres
+        image: postgres:15-alpine
+        env:
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: pg-credentials
+              key: pg-username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pg-credentials
+              key: pg-password
+        - name: POSTGRES_DB
+          value: dify
+        - name: PGDATA
+          value: /var/lib/postgresql/data
+        # command:
+        # - "postgres"
+        # - "-c"
+        # - "max_connections=100"
+        # - "-c"
+        # - "shared_buffers=128MB"
+        # - "-c"
+        # - "work_mem=4MB"
+        # - "-c"
+        # - "maintenance_work_mem=64MB"
+        # - "-c"
+        # - "effective_cache_size=4096MB"
+        livenessProbe:
+          exec:
+            command:
+            - "pg_isready"
+            - "-U"
+            - "$(PGUSER)"
+            - "-d"
+            - "$(POSTGRES_DB)"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        ports:
+        - containerPort: 5432
+          name: postgres-port
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "openebs-hostpath"
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-postgres
+  namespace: dify
+spec:
+  selector:
+    app: db-postgres
+  type: ClusterIP
+  # clusterIP: None
+  ports:
+  - name: postgres
+    protocol: TCP
+    port: 5432
+    targetPort: 5432
+
+# db Postgres End
