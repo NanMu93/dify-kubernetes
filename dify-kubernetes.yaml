@@ -1,0 +1,1992 @@
+# Create Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dify
+
+# db Postgres Start
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-postgres
+  name: dify-postgres
+  namespace: dify
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-postgres
+  name: dify-postgres
+  namespace: dify
+rules:
+- apiGroups:
+  - "*"
+  resources:
+  - "*"
+  verbs:
+  - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-postgres
+  name: dify-postgres
+  namespace: dify
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dify-postgres
+subjects:
+- kind: ServiceAccount
+  name: dify-postgres
+
+# db Postgres Credentials
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-credentials
+  namespace: dify
+type: Opaque
+stringData:
+  pg-username: "postgres"
+  pg-password: "nanmu2025"
+  pg-host: "dify-postgres.dify.svc.cluster.local"
+  pg-port: "5432"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-postgres
+  namespace: dify
+spec:
+  selector:
+    matchLabels:
+      app: dify-postgres 
+  serviceName: "dify-postgres"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: dify-postgres
+    spec:
+      serviceAccountName: dify-postgres
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: dify-postgres
+        image: postgres:15-alpine
+        env:
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: pg-credentials
+              key: pg-username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pg-credentials
+              key: pg-password
+        - name: POSTGRES_DB
+          value: dify
+        - name: PGDATA
+          value: /var/lib/postgresql/data
+        # command:
+        # - "postgres"
+        # - "-c"
+        # - "max_connections=100"
+        # - "-c"
+        # - "shared_buffers=128MB"
+        # - "-c"
+        # - "work_mem=4MB"
+        # - "-c"
+        # - "maintenance_work_mem=64MB"
+        # - "-c"
+        # - "effective_cache_size=4096MB"
+        livenessProbe:
+          exec:
+            command:
+            - "pg_isready"
+            - "-U"
+            - "$(PGUSER)"
+            - "-d"
+            - "$(POSTGRES_DB)"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        ports:
+        - containerPort: 5432
+          name: postgres-port
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "openebs-hostpath"
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-postgres
+  namespace: dify
+spec:
+  selector:
+    app: dify-postgres
+  type: ClusterIP
+  # clusterIP: None
+  ports:
+  - name: postgres
+    protocol: TCP
+    port: 5432
+    targetPort: 5432
+
+# db Postgres End
+# Redis Server Start
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-redis
+  name: dify-redis
+  namespace: dify
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-redis
+  name: dify-redis
+  namespace: dify
+rules:
+- apiGroups:
+  - "*"
+  resources:
+  - "*"
+  verbs:
+  - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-redis
+  name: dify-redis
+  namespace: dify
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dify-redis
+subjects:
+- kind: ServiceAccount
+  name: dify-redis
+
+# Redis Credentials
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-credentials
+  namespace: dify
+type: Opaque
+stringData:
+  redis-password: "nanmu2025"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-redis
+  namespace: dify
+spec:
+  selector:
+    matchLabels:
+      app: dify-redis
+  serviceName: "dify-redis"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: dify-redis
+    spec:
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: dify-redis
+      containers:
+      - name: dify-redis
+        image: redis:6-alpine
+        ports:
+        - containerPort: 6379
+          name: redis-p
+        command: ["redis-server", "--save", "20", "1", "--loglevel", "warning", "--requirepass", "$(REDIS_PASSWORD)"]
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1024Mi
+          requests:
+            cpu: 100m
+            memory: 102Mi
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-password
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "openebs-hostpath"
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-redis
+  namespace: dify
+spec:
+  selector:
+    app: dify-redis
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: redis
+    protocol: TCP
+    port: 6379
+    targetPort: 6379
+
+# Redis Server End
+# Weaviate Server Start
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-weaviate
+  name: dify-weaviate
+  namespace: dify
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-weaviate
+  name: dify-weaviate
+  namespace: dify
+rules:
+- apiGroups:
+  - "*"
+  resources:
+  - "*"
+  verbs:
+  - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-weaviate
+  name: dify-weaviate
+  namespace: dify
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dify-weaviate
+subjects:
+- kind: ServiceAccount
+  name: dify-weaviate
+
+# Weaviate env
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weaviate-env
+  namespace: dify
+data:
+  QUERY_DEFAULTS_LIMIT: "25"
+  AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+  PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+  DEFAULT_VECTORIZER_MODULE: "none"
+  AUTHENTICATION_APIKEY_ENABLED: "true"
+  AUTHENTICATION_APIKEY_ALLOWED_KEYS: "WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih"
+  AUTHENTICATION_APIKEY_USERS: "hello@dify.ai"
+  AUTHORIZATION_ADMINLIST_ENABLED: "true"
+  AUTHORIZATION_ADMINLIST_USERS: "hello@dify.ai"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-weaviate
+  namespace: dify
+spec:
+  selector:
+    matchLabels:
+      app: dify-weaviate
+  serviceName: "dify-weaviate"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: dify-weaviate
+    spec:
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: dify-weaviate
+      containers:
+      - name: dify-weaviate
+        image: semitechnologies/weaviate:1.19.0
+        ports:
+        - containerPort: 8080
+          name: weaviate-p
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1024Mi
+          requests:
+            cpu: 100m
+            memory: 102Mi
+        envFrom:
+        - configMapRef:
+            name: weaviate-env
+        volumeMounts:
+        - name: weaviate-data
+          mountPath: /var/lib/weaviate
+  volumeClaimTemplates:
+  - metadata:
+      name: weaviate-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "openebs-hostpath"
+      resources:
+        requests:
+          storage: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-weaviate
+  namespace: dify
+spec:
+  selector:
+    app: dify-weaviate
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: weaviate
+    protocol: TCP
+    port: 8080
+    targetPort: 8080
+
+# Weaviate Server End
+# Dify Sandbox Server Start
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-sandbox-env
+  namespace: dify
+data:
+  API_KEY: "dify-sandbox"
+  GIN_MODE: "release"
+  WORKER_TIMEOUT: "15"
+  ENABLE_NETWORK: "true"
+  SANDBOX_PORT: "8194"
+  HTTP_PROXY: 'http://dify-ssrf.dify.svc.cluster.local:3128'
+  HTTPS_PROXY: 'http://dify-ssrf.dify.svc.cluster.local:3128'
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-sandbox
+  namespace: dify
+  labels:
+    app: dify-sandbox
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: dify-sandbox
+  template:
+    metadata:
+      labels:
+        app: dify-sandbox
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: dify-sandbox
+        image: langgenius/dify-sandbox:0.2.10
+        envFrom:
+        - configMapRef:
+            name: dify-sandbox-env
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        livenessProbe:
+          exec:
+            command:
+            - "curl"
+            - "-f"
+            - "http://localhost:8194/health"
+        ports:
+        - containerPort: 8194
+        imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-sandbox
+  namespace: dify
+spec:
+  ports:
+  - port: 8194
+    targetPort: 8194
+    protocol: TCP
+    name: dify-sandbox
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: dify-sandbox
+
+# Dify Sandbox Server End
+# Dify SSRF Proxy Start
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssrf-proxy-config
+  namespace: dify
+data:
+  squid.conf: |
+    acl localnet src 10.0.0.0/8		# RFC 1918 local private network (LAN)
+    acl localnet src 100.64.0.0/10		# RFC 6598 shared address space (CGN)
+    acl localnet src 169.254.0.0/16 	# RFC 3927 link-local (directly plugged) machines
+    acl localnet src 172.16.0.0/12		# RFC 1918 local private network (LAN)
+    acl localnet src 192.168.0.0/16		# RFC 1918 local private network (LAN)
+    acl localnet src fc00::/7       	# RFC 4193 local private network range
+    acl localnet src fe80::/10      	# RFC 4291 link-local (directly plugged) machines
+    acl SSL_ports port 443
+    # acl SSL_ports port 1025-65535   # Enable the configuration to resolve this issue: https://github.com/langgenius/dify/issues/12792
+    acl Safe_ports port 80		# http
+    acl Safe_ports port 21		# ftp
+    acl Safe_ports port 443		# https
+    acl Safe_ports port 70		# gopher
+    acl Safe_ports port 210		# wais
+    acl Safe_ports port 1025-65535	# unregistered ports
+    acl Safe_ports port 280		# http-mgmt
+    acl Safe_ports port 488		# gss-http
+    acl Safe_ports port 591		# filemaker
+    acl Safe_ports port 777		# multiling http
+    acl CONNECT method CONNECT
+    http_access deny !Safe_ports
+    http_access deny CONNECT !SSL_ports
+    http_access allow localhost manager
+    http_access deny manager
+    http_access allow localhost
+    http_access allow localnet
+    include /etc/squid/conf.d/*.conf
+    http_access deny all
+
+    ################################## Proxy Server ################################
+    http_port 3128
+    coredump_dir /var/spool/squid
+    refresh_pattern ^ftp:		1440	20%	10080
+    refresh_pattern ^gopher:	1440	0%	1440
+    refresh_pattern -i (/cgi-bin/|\?) 0	0%	0
+    refresh_pattern \/(Packages|Sources)(|\.bz2|\.gz|\.xz)$ 0 0% 0 refresh-ims
+    refresh_pattern \/Release(|\.gpg)$ 0 0% 0 refresh-ims
+    refresh_pattern \/InRelease$ 0 0% 0 refresh-ims
+    refresh_pattern \/(Translation-.*)(|\.bz2|\.gz|\.xz)$ 0 0% 0 refresh-ims
+    refresh_pattern .		0	20%	4320
+    
+    # cache_dir ufs /var/spool/squid 100 16 256
+    # upstream proxy, set to your own upstream proxy IP to avoid SSRF attacks
+    # cache_peer 172.1.1.1 parent 3128 0 no-query no-digest no-netdb-exchange default 
+
+    ################################## Reverse Proxy To Sandbox ################################
+    http_port 8194 accel vhost
+    # Notice:
+    # default is 'sandbox' in dify's github repo, here is 'dify-sandbox' because the service name of sandbox is 'dify-sandbox'
+    # you can change it to your own service name
+    cache_peer dify-sandbox parent 8194 0 no-query originserver
+    acl src_all src all
+    http_access allow src_all
+
+---  
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssrf-proxy-entrypoint
+  namespace: dify
+data:
+  docker-entrypoint-mount.sh: |
+    #!/bin/bash
+
+    # Modified based on Squid OCI image entrypoint
+    
+    # This entrypoint aims to forward the squid logs to stdout to assist users of
+    # common container related tooling (e.g., kubernetes, docker-compose, etc) to
+    # access the service logs.
+    
+    # Moreover, it invokes the squid binary, leaving all the desired parameters to
+    # be provided by the "command" passed to the spawned container. If no command
+    # is provided by the user, the default behavior (as per the CMD statement in
+    # the Dockerfile) will be to use Ubuntu's default configuration [1] and run
+    # squid with the "-NYC" options to mimic the behavior of the Ubuntu provided
+    # systemd unit.
+    
+    # [1] The default configuration is changed in the Dockerfile to allow local
+    # network connections. See the Dockerfile for further information.
+    
+    echo "[ENTRYPOINT] re-create snakeoil self-signed certificate removed in the build process"
+    if [ ! -f /etc/ssl/private/ssl-cert-snakeoil.key ]; then
+        /usr/sbin/make-ssl-cert generate-default-snakeoil --force-overwrite > /dev/null 2>&1
+    fi
+    
+    tail -F /var/log/squid/access.log 2>/dev/null &
+    tail -F /var/log/squid/error.log 2>/dev/null &
+    tail -F /var/log/squid/store.log 2>/dev/null &
+    tail -F /var/log/squid/cache.log 2>/dev/null &
+      
+ 
+    # Replace environment variables in the template and output to the squid.conf
+    echo "[ENTRYPOINT] replacing environment variables in the template"
+
+    /usr/sbin/squid -Nz 
+    echo "[ENTRYPOINT] starting squid"
+    /usr/sbin/squid -f /etc/squid/squid.conf -NYC
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: squid-pvc
+  namespace: dify
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 1Gi
+
+# ssrf env
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-ssrf-env
+  namespace: dify
+data:
+  HTTP_PORT: "3128"
+  COREDUMP_DIR: "/var/spool/squid"
+  REVERSE_PROXY_PORT: "8194"
+  SANDBOX_HOST: "dify-sandbox"
+  SANDBOX_PORT: "8194"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name:  dify-ssrf
+  namespace: dify
+  labels:
+    app:  dify-ssrf
+spec:
+  selector:
+    matchLabels:
+      app: dify-ssrf
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app:  dify-ssrf
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name:  dify-ssrf
+        image:  ubuntu/squid:latest
+        envFrom:
+        - configMapRef:
+            name: dify-ssrf-env
+        resources:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+          limits:
+            cpu: 200m
+            memory: 500Mi
+        ports:
+        - containerPort:  3128
+          name:  dify-ssrf
+        volumeMounts:
+        - name: ssrf-data
+          mountPath: /var/spool/squid
+        - name: ssrf-proxy-config
+          mountPath: /etc/squid/conf.d/custom.conf
+          subPath: custom.conf
+        - name: ssrf-proxy-entrypoint
+          mountPath: /tmp/
+        command: [ "sh", "-c", "cp /tmp/docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh" ]
+      volumes:
+        - name: ssrf-proxy-config
+          configMap:
+            name: ssrf-proxy-config
+        - name: ssrf-proxy-entrypoint
+          configMap:
+            name: ssrf-proxy-entrypoint
+        - name: ssrf-data
+          persistentVolumeClaim:
+            claimName: squid-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-ssrf
+  namespace: dify
+spec:
+  selector:
+    app: dify-ssrf
+  ports:
+  - protocol: TCP
+    port: 3128
+    targetPort: 3128
+# Dify SSRF Proxy End
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-env
+  namespace: dify
+data:
+  CONSOLE_API_URL: ""
+  CONSOLE_WEB_URL: ""
+  SERVICE_API_URL: ""
+  APP_API_URL: ""
+  APP_WEB_URL: ""
+  FILES_URL: ""
+  LOG_LEVEL: "INFO"
+  LOG_FILE: "/app/logs/server.log"
+  LOG_FILE_MAX_SIZE: "20"
+  LOG_FILE_BACKUP_COUNT: "5"
+  LOG_DATEFORMAT: "%Y-%m-%d %H:%M:%S"
+  LOG_TZ: "UTC"
+  DEBUG: "false"
+  FLASK_DEBUG: "false"
+  SECRET_KEY: "sk-9f73s3ljTXVcMT3Blb3ljTqtsKiGHXVcMT3BlbkFJLK7U"
+  INIT_PASSWORD: ""
+  DEPLOY_ENV: "PRODUCTION"
+  CHECK_UPDATE_URL: "https://updates.dify.ai"
+  OPENAI_API_BASE: "https://api.openai.com/v1"
+  MIGRATION_ENABLED: "true"
+  FILES_ACCESS_TIMEOUT: "300"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+  REFRESH_TOKEN_EXPIRE_DAYS: "30"
+  APP_MAX_ACTIVE_REQUESTS: "0"
+  APP_MAX_EXECUTION_TIME: "1200"
+  DIFY_BIND_ADDRESS: "0.0.0.0"
+  DIFY_PORT: "5001"
+  SERVER_WORKER_AMOUNT: "1"
+  SERVER_WORKER_CLASS: "gevent"
+  SERVER_WORKER_CONNECTIONS: "10"
+  CELERY_WORKER_CLASS: ""
+  GUNICORN_TIMEOUT: "360"
+  CELERY_WORKER_AMOUNT: ""
+  CELERY_AUTO_SCALE: "false"
+  CELERY_MAX_WORKERS: ""
+  CELERY_MIN_WORKERS: ""
+  API_TOOL_DEFAULT_CONNECT_TIMEOUT: "10"
+  API_TOOL_DEFAULT_READ_TIMEOUT: "60"
+  DB_USERNAME: "postgres"
+  DB_PASSWORD: "nanmu2025"
+  DB_HOST: "dify-postgres.dify.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_DATABASE: "dify"
+  SQLALCHEMY_POOL_SIZE: "30"
+  SQLALCHEMY_POOL_RECYCLE: "3600"
+  SQLALCHEMY_ECHO: "false"
+  POSTGRES_MAX_CONNECTIONS: "100"
+  POSTGRES_SHARED_BUFFERS: "128MB"
+  POSTGRES_WORK_MEM: "4MB"
+  POSTGRES_MAINTENANCE_WORK_MEM: "64MB"
+  POSTGRES_EFFECTIVE_CACHE_SIZE: "4096MB"
+  REDIS_HOST: "dify-redis.dify.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_USERNAME: ""
+  REDIS_PASSWORD: "nanmu2025"
+  REDIS_USE_SSL: "false"
+  REDIS_DB: "0"
+  REDIS_USE_SENTINEL: "false"
+  REDIS_SENTINELS: ""
+  REDIS_SENTINEL_SERVICE_NAME: ""
+  REDIS_SENTINEL_USERNAME: ""
+  REDIS_SENTINEL_PASSWORD: ""
+  REDIS_SENTINEL_SOCKET_TIMEOUT: "0.1"
+  REDIS_USE_CLUSTERS: "false"
+  REDIS_CLUSTERS: ""
+  REDIS_CLUSTERS_PASSWORD: ""
+  CELERY_BROKER_URL: "redis://:nanmu2025@dify-redis.dify.svc.cluster.local:6379/1"
+  BROKER_USE_SSL: "false"
+  CELERY_USE_SENTINEL: "false"
+  CELERY_SENTINEL_MASTER_NAME: ""
+  CELERY_SENTINEL_SOCKET_TIMEOUT: "0.1"
+  WEB_API_CORS_ALLOW_ORIGINS: "*"
+  CONSOLE_CORS_ALLOW_ORIGINS: "*"
+  STORAGE_TYPE: "opendal"
+  OPENDAL_SCHEME: "fs"
+  OPENDAL_FS_ROOT: "storage"
+  S3_ENDPOINT: ""
+  S3_REGION: "us-east-1"
+  S3_BUCKET_NAME: "difyai"
+  S3_ACCESS_KEY: ""
+  S3_SECRET_KEY: ""
+  S3_USE_AWS_MANAGED_IAM: "false"
+  AZURE_BLOB_ACCOUNT_NAME: "difyai"
+  AZURE_BLOB_ACCOUNT_KEY: "difyai"
+  AZURE_BLOB_CONTAINER_NAME: "difyai-container"
+  AZURE_BLOB_ACCOUNT_URL: "https://<your_account_name>.blob.core.windows.net"
+  GOOGLE_STORAGE_BUCKET_NAME: "your-bucket-name"
+  GOOGLE_STORAGE_SERVICE_ACCOUNT_JSON_BASE64: ""
+  ALIYUN_OSS_BUCKET_NAME: "your-bucket-name"
+  ALIYUN_OSS_ACCESS_KEY: "your-access-key"
+  ALIYUN_OSS_SECRET_KEY: "your-secret-key"
+  ALIYUN_OSS_ENDPOINT: "https://oss-ap-southeast-1-internal.aliyuncs.com"
+  ALIYUN_OSS_REGION: "ap-southeast-1"
+  ALIYUN_OSS_AUTH_VERSION: "v4"
+  ALIYUN_OSS_PATH: "your-path"
+  TENCENT_COS_BUCKET_NAME: "your-bucket-name"
+  TENCENT_COS_SECRET_KEY: "your-secret-key"
+  TENCENT_COS_SECRET_ID: "your-secret-id"
+  TENCENT_COS_REGION: "your-region"
+  TENCENT_COS_SCHEME: "your-scheme"
+  OCI_ENDPOINT: "https://objectstorage.us-ashburn-1.oraclecloud.com"
+  OCI_BUCKET_NAME: "your-bucket-name"
+  OCI_ACCESS_KEY: "your-access-key"
+  OCI_SECRET_KEY: "your-secret-key"
+  OCI_REGION: "us-ashburn-1"
+  HUAWEI_OBS_BUCKET_NAME: "your-bucket-name"
+  HUAWEI_OBS_SECRET_KEY: "your-secret-key"
+  HUAWEI_OBS_ACCESS_KEY: "your-access-key"
+  HUAWEI_OBS_SERVER: "your-server-url"
+  VOLCENGINE_TOS_BUCKET_NAME: "your-bucket-name"
+  VOLCENGINE_TOS_SECRET_KEY: "your-secret-key"
+  VOLCENGINE_TOS_ACCESS_KEY: "your-access-key"
+  VOLCENGINE_TOS_ENDPOINT: "your-server-url"
+  VOLCENGINE_TOS_REGION: "your-region"
+  BAIDU_OBS_BUCKET_NAME: "your-bucket-name"
+  BAIDU_OBS_SECRET_KEY: "your-secret-key"
+  BAIDU_OBS_ACCESS_KEY: "your-access-key"
+  BAIDU_OBS_ENDPOINT: "your-server-url"
+  SUPABASE_BUCKET_NAME: "your-bucket-name"
+  SUPABASE_API_KEY: "your-access-key"
+  SUPABASE_URL: "your-server-url"
+  VECTOR_STORE: "weaviate"
+  WEAVIATE_ENDPOINT: "http://dify-weaviate.dify.svc.cluster.local:8080"
+  WEAVIATE_API_KEY: "WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih"
+  QDRANT_URL: "http://qdrant:6333"
+  QDRANT_API_KEY: "difyai123456"
+  QDRANT_CLIENT_TIMEOUT: "20"
+  QDRANT_GRPC_ENABLED: "false"
+  QDRANT_GRPC_PORT: "6334"
+  MILVUS_URI: "http://127.0.0.1:19530"
+  MILVUS_TOKEN: ""
+  MILVUS_USER: "root"
+  MILVUS_PASSWORD: "Milvus"
+  MILVUS_ENABLE_HYBRID_SEARCH: "False"
+  MYSCALE_HOST: "myscale"
+  MYSCALE_PORT: "8123"
+  MYSCALE_USER: "default"
+  MYSCALE_PASSWORD: ""
+  MYSCALE_DATABASE: "dify"
+  MYSCALE_FTS_PARAMS: ""
+  COUCHBASE_CONNECTION_STRING: "couchbase://couchbase-server"
+  COUCHBASE_USER: "Administrator"
+  COUCHBASE_PASSWORD: "password"
+  COUCHBASE_BUCKET_NAME: "Embeddings"
+  COUCHBASE_SCOPE_NAME: "_default"
+  PGVECTOR_HOST: "pgvector"
+  PGVECTOR_PORT: "5432"
+  PGVECTOR_USER: "postgres"
+  PGVECTOR_PASSWORD: "difyai123456"
+  PGVECTOR_DATABASE: "dify"
+  PGVECTOR_MIN_CONNECTION: "1"
+  PGVECTOR_MAX_CONNECTION: "5"
+  PGVECTO_RS_HOST: "pgvecto-rs"
+  PGVECTO_RS_PORT: "5432"
+  PGVECTO_RS_USER: "postgres"
+  PGVECTO_RS_PASSWORD: "difyai123456"
+  PGVECTO_RS_DATABASE: "dify"
+  ANALYTICDB_KEY_ID: "your-ak"
+  ANALYTICDB_KEY_SECRET: "your-sk"
+  ANALYTICDB_REGION_ID: "cn-hangzhou"
+  ANALYTICDB_INSTANCE_ID: "gp-ab123456"
+  ANALYTICDB_ACCOUNT: "testaccount"
+  ANALYTICDB_PASSWORD: "testpassword"
+  ANALYTICDB_NAMESPACE: "dify"
+  ANALYTICDB_NAMESPACE_PASSWORD: "difypassword"
+  ANALYTICDB_HOST: "gp-test.aliyuncs.com"
+  ANALYTICDB_PORT: "5432"
+  ANALYTICDB_MIN_CONNECTION: "1"
+  ANALYTICDB_MAX_CONNECTION: "5"
+  TIDB_VECTOR_HOST: "tidb"
+  TIDB_VECTOR_PORT: "4000"
+  TIDB_VECTOR_USER: ""
+  TIDB_VECTOR_PASSWORD: ""
+  TIDB_VECTOR_DATABASE: "dify"
+  TIDB_ON_QDRANT_URL: "http://127.0.0.1"
+  TIDB_ON_QDRANT_API_KEY: "dify"
+  TIDB_ON_QDRANT_CLIENT_TIMEOUT: "20"
+  TIDB_ON_QDRANT_GRPC_ENABLED: "false"
+  TIDB_ON_QDRANT_GRPC_PORT: "6334"
+  TIDB_PUBLIC_KEY: "dify"
+  TIDB_PRIVATE_KEY: "dify"
+  TIDB_API_URL: "http://127.0.0.1"
+  TIDB_IAM_API_URL: "http://127.0.0.1"
+  TIDB_REGION: "regions/aws-us-east-1"
+  TIDB_PROJECT_ID: "dify"
+  TIDB_SPEND_LIMIT: "100"
+  CHROMA_HOST: "127.0.0.1"
+  CHROMA_PORT: "8000"
+  CHROMA_TENANT: "default_tenant"
+  CHROMA_DATABASE: "default_database"
+  CHROMA_AUTH_PROVIDER: "chromadb.auth.token_authn.TokenAuthClientProvider"
+  CHROMA_AUTH_CREDENTIALS: ""
+  ORACLE_USER: "dify"
+  ORACLE_PASSWORD: "dify"
+  ORACLE_DSN: "oracle:1521/FREEPDB1"
+  ORACLE_CONFIG_DIR: "/app/api/storage/wallet"
+  ORACLE_WALLET_LOCATION: "/app/api/storage/wallet"
+  ORACLE_WALLET_PASSWORD: "dify"
+  ORACLE_IS_AUTONOMOUS: "false"
+  RELYT_HOST: "db"
+  RELYT_PORT: "5432"
+  RELYT_USER: "postgres"
+  RELYT_PASSWORD: "difyai123456"
+  RELYT_DATABASE: "postgres"
+  OPENSEARCH_HOST: "opensearch"
+  OPENSEARCH_PORT: "9200"
+  OPENSEARCH_USER: "admin"
+  OPENSEARCH_PASSWORD: "admin"
+  OPENSEARCH_SECURE: "true"
+  TENCENT_VECTOR_DB_URL: "http://127.0.0.1"
+  TENCENT_VECTOR_DB_API_KEY: "dify"
+  TENCENT_VECTOR_DB_TIMEOUT: "30"
+  TENCENT_VECTOR_DB_USERNAME: "dify"
+  TENCENT_VECTOR_DB_DATABASE: "dify"
+  TENCENT_VECTOR_DB_SHARD: "1"
+  TENCENT_VECTOR_DB_REPLICAS: "2"
+  ELASTICSEARCH_HOST: "dify-elasticsearch.dify.svc.cluster.local"
+  ELASTICSEARCH_PORT: "9200"
+  ELASTICSEARCH_USERNAME: "elastic"
+  ELASTICSEARCH_PASSWORD: "elastic"
+  KIBANA_PORT: "5601"
+  BAIDU_VECTOR_DB_ENDPOINT: "http://127.0.0.1:5287"
+  BAIDU_VECTOR_DB_CONNECTION_TIMEOUT_MS: "30000"
+  BAIDU_VECTOR_DB_ACCOUNT: "root"
+  BAIDU_VECTOR_DB_API_KEY: "dify"
+  BAIDU_VECTOR_DB_DATABASE: "dify"
+  BAIDU_VECTOR_DB_SHARD: "1"
+  BAIDU_VECTOR_DB_REPLICAS: "3"
+  VIKINGDB_ACCESS_KEY: "your-ak"
+  VIKINGDB_SECRET_KEY: "your-sk"
+  VIKINGDB_REGION: "cn-shanghai"
+  VIKINGDB_HOST: "api-vikingdb.xxx.volces.com"
+  VIKINGDB_SCHEMA: "http"
+  VIKINGDB_CONNECTION_TIMEOUT: "30"
+  VIKINGDB_SOCKET_TIMEOUT: "30"
+  LINDORM_URL: "http://lindorm:30070"
+  LINDORM_USERNAME: "lindorm"
+  LINDORM_PASSWORD: "lindorm"
+  OCEANBASE_VECTOR_HOST: "oceanbase"
+  OCEANBASE_VECTOR_PORT: "2881"
+  OCEANBASE_VECTOR_USER: "root@test"
+  OCEANBASE_VECTOR_PASSWORD: "difyai123456"
+  OCEANBASE_VECTOR_DATABASE: "test"
+  OCEANBASE_CLUSTER_NAME: "difyai"
+  OCEANBASE_MEMORY_LIMIT: "6G"
+  UPSTASH_VECTOR_URL: "https://xxx-vector.upstash.io"
+  UPSTASH_VECTOR_TOKEN: "dify"
+  UPLOAD_FILE_SIZE_LIMIT: "15"
+  UPLOAD_FILE_BATCH_LIMIT: "5"
+  ETL_TYPE: "dify"
+  UNSTRUCTURED_API_URL: ""
+  UNSTRUCTURED_API_KEY: ""
+  SCARF_NO_ANALYTICS: "true"
+  PROMPT_GENERATION_MAX_TOKENS: "512"
+  CODE_GENERATION_MAX_TOKENS: "1024"
+  MULTIMODAL_SEND_FORMAT: "base64"
+  UPLOAD_IMAGE_FILE_SIZE_LIMIT: "10"
+  UPLOAD_VIDEO_FILE_SIZE_LIMIT: "100"
+  UPLOAD_AUDIO_FILE_SIZE_LIMIT: "50"
+  SENTRY_DSN: ""
+  API_SENTRY_DSN: ""
+  API_SENTRY_TRACES_SAMPLE_RATE: "1.0"
+  API_SENTRY_PROFILES_SAMPLE_RATE: "1.0"
+  WEB_SENTRY_DSN: ""
+  NOTION_INTEGRATION_TYPE: "public"
+  NOTION_CLIENT_SECRET: ""
+  NOTION_CLIENT_ID: ""
+  NOTION_INTERNAL_SECRET: ""
+  MAIL_TYPE: "resend"
+  MAIL_DEFAULT_SEND_FROM: ""
+  RESEND_API_URL: "https://api.resend.com"
+  RESEND_API_KEY: "your-resend-api-key"
+  SMTP_SERVER: ""
+  SMTP_PORT: "465"
+  SMTP_USERNAME: ""
+  SMTP_PASSWORD: ""
+  SMTP_USE_TLS: "true"
+  SMTP_OPPORTUNISTIC_TLS: "false"
+  INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH: "4000"
+  INVITE_EXPIRY_HOURS: "72"
+  RESET_PASSWORD_TOKEN_EXPIRY_MINUTES: "5"
+  CODE_EXECUTION_ENDPOINT: "http://sandbox:8194"
+  CODE_EXECUTION_API_KEY: "dify-sandbox"
+  CODE_MAX_NUMBER: "9223372036854775807"
+  CODE_MIN_NUMBER: "-9223372036854775808"
+  CODE_MAX_DEPTH: "5"
+  CODE_MAX_PRECISION: "20"
+  CODE_MAX_STRING_LENGTH: "80000"
+  CODE_MAX_STRING_ARRAY_LENGTH: "30"
+  CODE_MAX_OBJECT_ARRAY_LENGTH: "30"
+  CODE_MAX_NUMBER_ARRAY_LENGTH: "1000"
+  CODE_EXECUTION_CONNECT_TIMEOUT: "10"
+  CODE_EXECUTION_READ_TIMEOUT: "60"
+  CODE_EXECUTION_WRITE_TIMEOUT: "10"
+  TEMPLATE_TRANSFORM_MAX_LENGTH: "80000"
+  WORKFLOW_MAX_EXECUTION_STEPS: "500"
+  WORKFLOW_MAX_EXECUTION_TIME: "1200"
+  WORKFLOW_CALL_MAX_DEPTH: "5"
+  MAX_VARIABLE_SIZE: "204800"
+  WORKFLOW_PARALLEL_DEPTH_LIMIT: "3"
+  WORKFLOW_FILE_UPLOAD_LIMIT: "10"
+  HTTP_REQUEST_NODE_MAX_BINARY_SIZE: "10485760"
+  HTTP_REQUEST_NODE_MAX_TEXT_SIZE: "1048576"
+  SSRF_PROXY_HTTP_URL: "http://ssrf_proxy:3128"
+  SSRF_PROXY_HTTPS_URL: "http://ssrf_proxy:3128"
+  LOOP_NODE_MAX_COUNT: "100"
+  TEXT_GENERATION_TIMEOUT_MS: "60000"
+  PGDATA: "/var/lib/postgresql/data/pgdata"
+  SANDBOX_API_KEY: "dify-sandbox"
+  SANDBOX_GIN_MODE: "release"
+  SANDBOX_WORKER_TIMEOUT: "15"
+  SANDBOX_ENABLE_NETWORK: "true"
+  SANDBOX_HTTP_PROXY: "http://ssrf_proxy:3128"
+  SANDBOX_HTTPS_PROXY: "http://ssrf_proxy:3128"
+  SANDBOX_PORT: "8194"
+  WEAVIATE_PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+  WEAVIATE_QUERY_DEFAULTS_LIMIT: "25"
+  WEAVIATE_AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+  WEAVIATE_DEFAULT_VECTORIZER_MODULE: "none"
+  WEAVIATE_CLUSTER_HOSTNAME: "node1"
+  WEAVIATE_AUTHENTICATION_APIKEY_ENABLED: "true"
+  WEAVIATE_AUTHENTICATION_APIKEY_ALLOWED_KEYS: "WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih"
+  WEAVIATE_AUTHENTICATION_APIKEY_USERS: "hello@dify.ai"
+  WEAVIATE_AUTHORIZATION_ADMINLIST_ENABLED: "true"
+  WEAVIATE_AUTHORIZATION_ADMINLIST_USERS: "hello@dify.ai"
+  CHROMA_SERVER_AUTHN_CREDENTIALS: "difyai123456"
+  CHROMA_SERVER_AUTHN_PROVIDER: "chromadb.auth.token_authn.TokenAuthenticationServerProvider"
+  CHROMA_IS_PERSISTENT: "TRUE"
+  ORACLE_PWD: "Dify123456"
+  ORACLE_CHARACTERSET: "AL32UTF8"
+  ETCD_AUTO_COMPACTION_MODE: "revision"
+  ETCD_AUTO_COMPACTION_RETENTION: "1000"
+  ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+  ETCD_SNAPSHOT_COUNT: "50000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"
+  ETCD_ENDPOINTS: "etcd:2379"
+  MINIO_ADDRESS: "minio:9000"
+  MILVUS_AUTHORIZATION_ENABLED: "true"
+  PGVECTOR_PGUSER: "postgres"
+  PGVECTOR_POSTGRES_PASSWORD: "difyai123456"
+  PGVECTOR_POSTGRES_DB: "dify"
+  PGVECTOR_PGDATA: "/var/lib/postgresql/data/pgdata"
+  OPENSEARCH_DISCOVERY_TYPE: "single-node"
+  OPENSEARCH_BOOTSTRAP_MEMORY_LOCK: "true"
+  OPENSEARCH_JAVA_OPTS_MIN: "512m"
+  OPENSEARCH_JAVA_OPTS_MAX: "1024m"
+  OPENSEARCH_INITIAL_ADMIN_PASSWORD: "Qazwsxedc!@#123"
+  OPENSEARCH_MEMLOCK_SOFT: "-1"
+  OPENSEARCH_MEMLOCK_HARD: "-1"
+  OPENSEARCH_NOFILE_SOFT: "65536"
+  OPENSEARCH_NOFILE_HARD: "65536"
+  NGINX_SERVER_NAME: "_"
+  NGINX_HTTPS_ENABLED: "false"
+  NGINX_PORT: "80"
+  NGINX_SSL_PORT: "443"
+  NGINX_SSL_CERT_FILENAME: "dify.crt"
+  NGINX_SSL_CERT_KEY_FILENAME: "dify.key"
+  NGINX_SSL_PROTOCOLS: "TLSv1.1 TLSv1.2 TLSv1.3"
+  NGINX_WORKER_PROCESSES: "auto"
+  NGINX_CLIENT_MAX_BODY_SIZE: "15M"
+  NGINX_KEEPALIVE_TIMEOUT: "65"
+  NGINX_PROXY_READ_TIMEOUT: "3600s"
+  NGINX_PROXY_SEND_TIMEOUT: "3600s"
+  NGINX_ENABLE_CERTBOT_CHALLENGE: "false"
+  CERTBOT_EMAIL: "your_email@example.com"
+  CERTBOT_DOMAIN: "your_domain.com"
+  CERTBOT_OPTIONS: ""
+  SSRF_HTTP_PORT: "3128"
+  SSRF_COREDUMP_DIR: "/var/spool/squid"
+  SSRF_REVERSE_PROXY_PORT: "8194"
+  SSRF_SANDBOX_HOST: "dify-sandbox.dify.svc.cluster.local"
+  SSRF_DEFAULT_TIME_OUT: "5"
+  SSRF_DEFAULT_CONNECT_TIME_OUT: "5"
+  SSRF_DEFAULT_READ_TIME_OUT: "5"
+  SSRF_DEFAULT_WRITE_TIME_OUT: "5"
+  EXPOSE_NGINX_PORT: "80"
+  EXPOSE_NGINX_SSL_PORT: "443"
+  POSITION_TOOL_PINS: ""
+  POSITION_TOOL_INCLUDES: ""
+  POSITION_TOOL_EXCLUDES: ""
+  POSITION_PROVIDER_PINS: ""
+  POSITION_PROVIDER_INCLUDES: ""
+  POSITION_PROVIDER_EXCLUDES: ""
+  CSP_WHITELIST: ""
+  CREATE_TIDB_SERVICE_JOB_ENABLED: "false"
+  MAX_SUBMIT_COUNT: "100"
+  TOP_K_MAX_VALUE: "10"
+  DB_PLUGIN_DATABASE: "dify_plugin"
+  EXPOSE_PLUGIN_DAEMON_PORT: "5002"
+  PLUGIN_DAEMON_PORT: "5002"
+  PLUGIN_DAEMON_KEY: "lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi"
+  PLUGIN_DAEMON_URL: "http://dify-plugin-daemon.dify.svc.cluster.local:5002"
+  PLUGIN_MAX_PACKAGE_SIZE: "52428800"
+  PLUGIN_PPROF_ENABLED: "false"
+  PLUGIN_DEBUGGING_HOST: "0.0.0.0"
+  PLUGIN_DEBUGGING_PORT: "5003"
+  EXPOSE_PLUGIN_DEBUGGING_HOST: "localhost"
+  EXPOSE_PLUGIN_DEBUGGING_PORT: "5003"
+  PLUGIN_DIFY_INNER_API_KEY: "QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1"
+  PLUGIN_DIFY_INNER_API_URL: "http://dify-api.dify.svc.cluster.local:5001"
+  ENDPOINT_URL_TEMPLATE: "http://localhost/e/{hook_id}"
+  MARKETPLACE_ENABLED: "true"
+  MARKETPLACE_API_URL: "https://marketplace.dify.ai"
+  FORCE_VERIFYING_SIGNATURE: "true"
+  PLUGIN_PYTHON_ENV_INIT_TIMEOUT: "120"
+  PLUGIN_MAX_EXECUTION_TIMEOUT: "600"
+
+# Dify API Server Start
+# api server env
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-env
+  namespace: dify
+data:
+  SENTRY_DSN: ""
+  SENTRY_TRACES_SAMPLE_RATE: "1.0"
+  SENTRY_PROFILES_SAMPLE_RATE: "1.0"
+  PLUGIN_MAX_PACKAGE_SIZE: "52428800"
+  INNER_API_KEY_FOR_PLUGIN: "QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-api
+  labels:
+    app.kubernetes.io/instance: dify-api
+    app: dify-api
+  namespace: dify
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: dify-api
+  selector:
+    matchLabels:
+      app: dify-api
+  template:
+    metadata:
+      labels:
+        app: dify-api
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: dify-api
+        image: langgenius/dify-api:1.0.0
+        envFrom:
+        - configMapRef:
+            name: dify-env
+        - configMapRef:
+            name: api-env
+        env:
+        - name: MODE
+          value: api
+        - name: PLUGIN_REMOTE_INSTALL_HOST
+          value: "localhost"
+        - name: PLUGIN_REMOTE_INSTALL_PORT
+          value: "5003"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        ports:
+        - containerPort: 5001
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: dify-api-storage
+          mountPath: /app/api/storage
+  volumeClaimTemplates:
+  - metadata:
+      name: dify-api-storage
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-api
+  namespace: dify
+spec:
+  ports:
+  - port: 5001
+    targetPort: 5001
+    protocol: TCP
+    name: dify-api
+  type: ClusterIP
+  selector:
+    app: dify-api
+
+# Dify API Server End
+# Dify Worker Server Start
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-worker
+  namespace: dify
+  labels:
+    app: dify-worker
+    app.kubernetes.io/instance: dify-worker
+spec:
+  serviceName: "dify-worker"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dify-worker
+  template:
+    metadata:
+      labels:
+        app: dify-worker
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: dify-worker
+        image: langgenius/dify-api:1.0.0
+        ports:
+        - containerPort: 5001
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: dify-env
+        - configMapRef:
+            name: api-env
+        env:
+        - name: MODE
+          value: worker
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        volumeMounts:
+        - name: dify-api-storage
+          mountPath: /app/api/storage
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+  volumeClaimTemplates:
+  - metadata:
+      name: dify-api-storage
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-worker
+  namespace: dify
+spec:
+  ports:
+  - protocol: TCP
+    port: 5001
+    targetPort: 5001
+  selector:
+    app: dify-worker
+  type: ClusterIP
+
+# Dify Worker Server End
+# Dify Web Server Start
+# web env
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-env
+  namespace: dify
+data:
+  CONSOLE_API_URL: ""
+  APP_API_URL: ""
+  SENTRY_DSN: ""
+  NEXT_TELEMETRY_DISABLED: "0"
+  TEXT_GENERATION_TIMEOUT_MS: "60000"
+  CSP_WHITELIST: ""
+  MARKETPLACE_API_URL: "https://marketplace.dify.ai"
+  MARKETPLACE_URL: "https://marketplace.dify.ai"
+  TOP_K_MAX_VALUE: ""
+  INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH: ""
+  PM2_INSTANCES: "2"
+  LOOP_NODE_MAX_COUNT: "100"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-web
+  namespace: dify
+  labels:
+    app: dify-web
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: dify-web
+  template:
+    metadata:
+      labels:
+        app: dify-web
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      containers:
+      - name: dify-web
+        image: langgenius/dify-web:1.0.0
+        envFrom:
+        - configMapRef:
+            name: web-env
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        ports:
+        - containerPort: 3000
+        imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-web
+  namespace: dify
+spec:
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: dify-web
+  type: ClusterIP
+  selector:
+    app: dify-web
+
+# Dify Web Server End
+# Dify Nginx Server Start
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-nginx-config-template
+  namespace: dify
+data:
+  nginx.conf.template: |-
+    user  nginx;
+    worker_processes  ${NGINX_WORKER_PROCESSES};
+
+    error_log  /var/log/nginx/error.log notice;
+    pid        /var/run/nginx.pid;
+
+
+    events {
+        worker_connections  1024;
+    }
+
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log  /var/log/nginx/access.log  main;
+
+        sendfile        on;
+        #tcp_nopush     on;
+
+        keepalive_timeout  ${NGINX_KEEPALIVE_TIMEOUT};
+
+        #gzip  on;
+        client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
+
+        include /etc/nginx/conf.d/*.conf;
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-nginx-https-config-template
+  namespace: dify
+data:
+  https.conf.template: |
+    listen ${NGINX_SSL_PORT} ssl;
+    ssl_certificate ${SSL_CERTIFICATE_PATH};
+    ssl_certificate_key ${SSL_CERTIFICATE_KEY_PATH};
+    ssl_protocols ${NGINX_SSL_PROTOCOLS};
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-nginx-proxy-config-template
+  namespace: dify
+data:
+  proxy.conf.template: |
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_read_timeout ${NGINX_PROXY_READ_TIMEOUT};
+    proxy_send_timeout ${NGINX_PROXY_SEND_TIMEOUT};
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-nginx-default-config-template
+  namespace: dify
+data:
+  default.conf.template: |
+    server {
+        listen ${NGINX_PORT};
+        server_name ${NGINX_SERVER_NAME};
+
+        # Rule 1: Handle application entry points (preserve /app/{id})
+        location ~ ^/app/[a-f0-9-]+$ {
+          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
+          include proxy.conf;
+        }
+
+        # Rule 2: Handle static resource requests (remove /app/{id} prefix)
+        location ~ ^/app/[a-f0-9-]+/(console/api/.*)$ {
+          rewrite ^/app/[a-f0-9-]+/(.*)$ /$1 break;
+          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
+          include proxy.conf;
+        }
+
+        location /console/api {
+          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
+          include proxy.conf;
+        }
+
+        location /api {
+          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
+          include proxy.conf;
+        }
+
+        location /v1 {
+          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
+          include proxy.conf;
+        }
+
+        location /files {
+          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
+          include proxy.conf;
+        }
+
+        location /explore {
+          proxy_pass http://dify-web.dify.svc.cluster.local:3000;
+          include proxy.conf;
+        }
+
+        location /e/ {
+          proxy_pass http://dify-plugin-daemon.dify.svc.cluster.local:5002;
+          proxy_set_header Dify-Hook-Url $scheme://$host$request_uri;
+          include proxy.conf;
+        }
+
+        location / {
+          proxy_pass http://dify-web.dify.svc.cluster.local:3000;
+          include proxy.conf;
+        }
+
+        # placeholder for acme challenge location
+        ${ACME_CHALLENGE_LOCATION}
+
+        # placeholder for https config defined in https.conf.template
+        ${HTTPS_CONFIG}
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-nginx-entrypoint
+  namespace: dify
+data:
+  dify-nginx-entrypoint.sh: |
+    #!/bin/bash
+    if [ "${NGINX_HTTPS_ENABLED}" = "true" ]; then
+        # Check if the certificate and key files for the specified domain exist
+        if [ -n "${CERTBOT_DOMAIN}" ] && \
+          [ -f "/etc/letsencrypt/live/${CERTBOT_DOMAIN}/${NGINX_SSL_CERT_FILENAME}" ] && \
+          [ -f "/etc/letsencrypt/live/${CERTBOT_DOMAIN}/${NGINX_SSL_CERT_KEY_FILENAME}" ]; then
+            SSL_CERTIFICATE_PATH="/etc/letsencrypt/live/${CERTBOT_DOMAIN}/${NGINX_SSL_CERT_FILENAME}"
+            SSL_CERTIFICATE_KEY_PATH="/etc/letsencrypt/live/${CERTBOT_DOMAIN}/${NGINX_SSL_CERT_KEY_FILENAME}"
+        else
+            SSL_CERTIFICATE_PATH="/etc/ssl/${NGINX_SSL_CERT_FILENAME}"
+            SSL_CERTIFICATE_KEY_PATH="/etc/ssl/${NGINX_SSL_CERT_KEY_FILENAME}"
+        fi
+        export SSL_CERTIFICATE_PATH
+        export SSL_CERTIFICATE_KEY_PATH
+
+        # set the HTTPS_CONFIG environment variable to the content of the https.conf.template
+        HTTPS_CONFIG=$(envsubst < /etc/nginx/https.conf.template)
+        export HTTPS_CONFIG
+        # Substitute the HTTPS_CONFIG in the default.conf.template with content from https.conf.template
+        envsubst '${HTTPS_CONFIG}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+    fi
+
+    if [ "${NGINX_ENABLE_CERTBOT_CHALLENGE}" = "true" ]; then
+        ACME_CHALLENGE_LOCATION='location /.well-known/acme-challenge/ { root /var/www/html; }'
+    else
+        ACME_CHALLENGE_LOCATION=''
+    fi
+    export ACME_CHALLENGE_LOCATION
+
+    env_vars=$(printenv | cut -d= -f1 | sed 's/^/$/g' | paste -sd, -)
+
+    envsubst "$env_vars" < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+    envsubst "$env_vars" < /etc/nginx/proxy.conf.template > /etc/nginx/proxy.conf
+
+    envsubst < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+
+    # Start Nginx using the default entrypoint
+    exec nginx -g 'daemon off;'
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-nginx
+  namespace: dify
+  labels:
+    app: dify-nginx
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: dify-nginx
+  template:
+    metadata:
+      labels:
+        app: dify-nginx
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      containers:
+      - name: dify-nginx
+        image: nginx:stable
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        envFrom:
+        - configMapRef:
+            name: dify-env
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        - name: dify-nginx-config-template
+          mountPath: /etc/nginx/nginx.conf.template
+          subPath: nginx.conf.template
+        - name: dify-nginx-default-config-template
+          mountPath: /etc/nginx/conf.d/default.conf.template
+          subPath: default.conf.template
+        - name: dify-nginx-https-config-template
+          mountPath: /etc/nginx/https.conf.template
+          subPath: https.conf.template
+        - name: dify-nginx-proxy-config-template
+          mountPath: /etc/nginx/proxy.conf.template
+          subPath: proxy.conf.template
+        - name: dify-nginx-entrypoint
+          mountPath: /tmp/dify-nginx-entrypoint.sh
+          subPath: dify-nginx-entrypoint.sh
+        command: [ 'sh', '-c', "cp /tmp/dify-nginx-entrypoint.sh /dify-nginx-entrypoint.sh && sed -i 's/\r$$//' /dify-nginx-entrypoint.sh && chmod +x /dify-nginx-entrypoint.sh && /dify-nginx-entrypoint.sh" ]
+        imagePullPolicy: IfNotPresent
+      volumes:
+      - name: dify-nginx-config-template
+        configMap:
+          name: dify-nginx-config-template
+      - name: dify-nginx-https-config-template
+        configMap:
+          name: dify-nginx-https-config-template
+      - name: dify-nginx-proxy-config-template
+        configMap:
+          name: dify-nginx-proxy-config-template
+      - name: dify-nginx-default-config-template
+        configMap:
+          name: dify-nginx-default-config-template
+      - name: dify-nginx-entrypoint
+        configMap:
+          name: dify-nginx-entrypoint
+        
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: dify-nginx
+  namespace: dify
+spec:
+  selector:
+    app: dify-nginx
+  type: ClusterIP
+  ports:
+  - name: dify-nginx
+    port: 80
+    targetPort: 80
+  - name: dify-nginx-ssl
+    port: 443
+    targetPort: 443
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: dify-nginx-access
+  namespace: dify
+spec:
+  selector:
+    app: dify-nginx
+  type: LoadBalancer
+  ports:
+  - name: dify-nginx
+    port: 80
+    targetPort: 80
+# Dify Nginx Server End
+
+# Dify plugin daemon Start
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plugin-env
+  namespace: dify
+data:
+  DB_DATABASE: "dify_plugin"
+  SERVER_PORT: "5002"
+  SERVER_KEY: "lYkiYYT6owG+71oLerGzA7GXCgOT++6ovaezWAjpCjf+Sjc3ZtU+qUEi"
+  MAX_PLUGIN_PACKAGE_SIZE: "52428800"
+  PPROF_ENABLED: "false"
+  DIFY_INNER_API_URL: "http://dify-api.dify.svc.cluster.local:5001"
+  DIFY_INNER_API_KEY: "QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1"
+  PLUGIN_REMOTE_INSTALLING_HOST: "0.0.0.0"
+  PLUGIN_REMOTE_INSTALLING_PORT: "5003"
+  PLUGIN_WORKING_PATH: "/app/storage/cwd"
+  FORCE_VERIFYING_SIGNATURE: "true"
+  PYTHON_ENV_INIT_TIMEOUT: "120"
+  PLUGIN_MAX_EXECUTION_TIMEOUT: "600"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dify-plugin-daemon-pvc
+  namespace: dify
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-plugin-daemon
+  namespace: dify
+  labels:
+    app: dify-plugin-daemon
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: dify-plugin-daemon
+  template:
+    metadata:
+      labels:
+        app: dify-plugin-daemon
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      volumes:
+      - name: dify-plugin-daemon-storage
+        persistentVolumeClaim:
+          claimName: dify-plugin-daemon-pvc
+      containers:
+      - name: dify-plugin-daemon
+        image: langgenius/dify-plugin-daemon:0.0.3-local
+        resources:
+          limits:
+            memory: "1024Mi"
+            cpu: "2000m"
+          requests:
+            memory: "256Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 5003
+          protocol: TCP
+          name: debug-port
+        - containerPort: 5002
+          protocol: TCP
+          name: service-port
+        envFrom:
+        - configMapRef:
+            name: dify-env
+        - configMapRef:
+            name: plugin-env
+        volumeMounts:
+        - name: dify-plugin-daemon-storage
+          mountPath: /app/storage
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-plugin-daemon
+  namespace: dify
+spec:
+  type: ClusterIP
+  selector:
+    app: dify-plugin-daemon
+  ports:
+  - port: 5003
+    targetPort: 5003
+    protocol: TCP
+    name: debug-port
+  - port: 5002
+    targetPort: 5002
+    protocol: TCP
+    name: service-port
+# Dify Plugin Daemon End
+
+# Elasticsearch Start
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elasticsearch-secrets
+  namespace: dify
+type: Opaque
+stringData:
+  ELASTIC_PASSWORD: "elastic"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-entrypoint
+  namespace: dify
+data:
+  docker-entrypoint.sh: |
+    #!/bin/bash
+    set -e
+
+    if [ "${VECTOR_STORE}" = "elasticsearch-ja" ]; then
+        # Check if the ICU tokenizer plugin is installed
+        if ! /usr/share/elasticsearch/bin/elasticsearch-plugin list | grep -q analysis-icu; then
+            printf '%s\n' "Installing the ICU tokenizer plugin"
+            if ! /usr/share/elasticsearch/bin/elasticsearch-plugin install analysis-icu; then
+                printf '%s\n' "Failed to install the ICU tokenizer plugin"
+                exit 1
+            fi
+        fi
+        # Check if the Japanese language analyzer plugin is installed
+        if ! /usr/share/elasticsearch/bin/elasticsearch-plugin list | grep -q analysis-kuromoji; then
+            printf '%s\n' "Installing the Japanese language analyzer plugin"
+            if ! /usr/share/elasticsearch/bin/elasticsearch-plugin install analysis-kuromoji; then
+                printf '%s\n' "Failed to install the Japanese language analyzer plugin"
+                exit 1
+            fi
+        fi
+    fi
+
+    # Run the original entrypoint script
+    exec /bin/tini -- /usr/local/bin/docker-entrypoint.sh
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-elasticsearch
+  namespace: dify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dify-elasticsearch
+  template:
+    metadata:
+      labels:
+        app: dify-elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+        env:
+          - name: ELASTIC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: elasticsearch-secrets
+                key: ELASTIC_PASSWORD
+          - name: VECTOR_STORE
+            value: "weaviate"
+          - name: cluster.name
+            value: dify-es-cluster
+          - name: node.name
+            value: dify-es0
+          - name: discovery.type
+            value: single-node
+          - name: xpack.license.self_generated.type
+            value: basic
+          - name: xpack.security.enabled
+            value: "true"
+          - name: xpack.security.enrollment.enabled
+            value: "false"
+          - name: xpack.security.http.ssl.enabled
+            value: "false"
+        ports:
+          - containerPort: 9200
+        volumeMounts:
+          - name: entrypoint-script
+            mountPath: /docker-entrypoint-mount.sh
+            subPath: docker-entrypoint.sh
+          - name: es-data
+            mountPath: /usr/share/elasticsearch/data
+        resources:
+          limits:
+            memory: 2Gi
+        livenessProbe:
+          exec:
+            command:
+              - curl
+              - -s
+              - http://localhost:9200/_cluster/health?pretty
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 50
+        command: ["sh", "-c"]
+        args: ["sh /docker-entrypoint-mount.sh"]
+      volumes:
+        - name: entrypoint-script
+          configMap:
+            name: elasticsearch-entrypoint
+  volumeClaimTemplates:
+    - metadata:
+        name: es-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: openebs-hostpath
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-elasticsearch
+  namespace: dify
+spec:
+  selector:
+    app: dify-elasticsearch
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 9200
+      targetPort: 9200
+# Elasticsearch End
+
+# Kibana Start
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-kibana
+  namespace: dify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dify-kibana
+  template:
+    metadata:
+      labels:
+        app: dify-kibana
+    spec:
+      initContainers:
+        - name: wait-for-elasticsearch
+          image: busybox
+          command: ['sh', '-c', 'until nc -z dify-elasticsearch.dify.svc.cluster.local 9200; do echo waiting for elasticsearch; sleep 2; done;']
+      containers:
+      - name: kibana
+        image: docker.elastic.co/kibana/kibana:8.14.3
+        env:
+          - name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+            value: d1a66dfd-c4d3-4a0a-8290-2abcb83ab3aa
+          - name: NO_PROXY
+            value: localhost,127.0.0.1,dify-elasticsearch,dify-kibana,dify-elasticsearch.dify.svc.cluster.local,dify-kibana.dify.svc.cluster.local
+          - name: XPACK_SECURITY_ENABLED
+            value: "true"
+          - name: XPACK_SECURITY_ENROLLMENT_ENABLED
+            value: "false"
+          - name: XPACK_SECURITY_HTTP_SSL_ENABLED
+            value: "false"
+          - name: XPACK_FLEET_ISAIRGAPPED
+            value: "true"
+          - name: I18N_LOCALE
+            value: zh-CN
+          - name: SERVER_PORT
+            value: "5601"
+          - name: ELASTICSEARCH_HOSTS
+            value: http://dify-elasticsearch.dify.svc.cluster.local:9200
+        ports:
+          - containerPort: 5601
+        livenessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - curl -s http://localhost:5601 >/dev/null || exit 1
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-kibana
+  namespace: dify
+spec:
+  selector:
+    app: dify-kibana
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 5601
+      targetPort: 5601
+# Kibana End
