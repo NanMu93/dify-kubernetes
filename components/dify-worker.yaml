@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-worker
+  namespace: dify
+  labels:
+    app: dify-worker
+    app.kubernetes.io/instance: dify-worker
+spec:
+  serviceName: "dify-worker"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dify-worker
+  template:
+    metadata:
+      labels:
+        app: dify-worker
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: dify-worker
+        image: langgenius/dify-api:1.0.0
+        ports:
+        - containerPort: 5001
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: dify-env
+        - configMapRef:
+            name: api-env
+        env:
+        - name: MODE
+          value: worker
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 2
+            memory: 2Gi
+        volumeMounts:
+        - name: dify-api-storage
+          mountPath: /app/api/storage
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      volumes:
+      - name: dify-api-storage
+        hostPath:
+          path: /app/dify/api/data
+          type: DirectoryOrCreate
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: dify-api-storage
+  #   spec:
+  #     accessModes:
+  #       - ReadWriteOnce
+  #     resources:
+  #       requests:
+  #         storage: 5Gi
+
+# 建议使用PersistentVolume替代HostPath来避免安全风险
+# 注释中使用了openebs存储插件管理节点本地存储
+# It is recommended to use PersistentVolume instead of HostPath to avoid security risks 
+# The openebs storage plugin is used in the comment to manage local storage on nodes
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-worker
+  namespace: dify
+spec:
+  ports:
+  - protocol: TCP
+    port: 5001
+    targetPort: 5001
+  selector:
+    app: dify-worker
+  type: ClusterIP

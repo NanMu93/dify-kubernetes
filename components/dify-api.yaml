@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-env
+  namespace: dify
+data:
+  SENTRY_DSN: ""
+  SENTRY_TRACES_SAMPLE_RATE: "1.0"
+  SENTRY_PROFILES_SAMPLE_RATE: "1.0"
+  PLUGIN_MAX_PACKAGE_SIZE: "52428800"
+  INNER_API_KEY_FOR_PLUGIN: "QaHbTe77CtuXmsfyhR7+vRjI/+XbV1AaFy691iy+kGDv2Jvy0/eAh8Y1"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-api
+  labels:
+    app.kubernetes.io/instance: dify-api
+    app: dify-api
+  namespace: dify
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: dify-api
+  selector:
+    matchLabels:
+      app: dify-api
+  template:
+    metadata:
+      labels:
+        app: dify-api
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: dify-api
+        image: langgenius/dify-api:1.0.0
+        envFrom:
+        - configMapRef:
+            name: dify-env
+        - configMapRef:
+            name: api-env
+        env:
+        - name: MODE
+          value: api
+        - name: PLUGIN_REMOTE_INSTALL_HOST
+          value: "localhost"
+        - name: PLUGIN_REMOTE_INSTALL_PORT
+          value: "5003"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 2Gi
+        ports:
+        - containerPort: 5001
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: dify-api-storage
+          mountPath: /app/api/storage
+      volumes:
+      - name: dify-api-storage
+        hostPath:
+          path: /app/dify/api/data
+          type: DirectoryOrCreate
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: dify-api-storage
+  #   spec:
+  #     accessModes:
+  #       - ReadWriteOnce
+  #     storageClassName: "openebs-hostpath"
+  #     resources:
+  #       requests:
+  #         storage: 1Gi
+      
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-api
+  namespace: dify
+spec:
+  ports:
+  - port: 5001
+    targetPort: 5001
+    protocol: TCP
+    name: dify-api
+  type: ClusterIP
+  selector:
+    app: dify-api

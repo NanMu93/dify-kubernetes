@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-kibana
+  namespace: dify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dify-kibana
+  template:
+    metadata:
+      labels:
+        app: dify-kibana
+    spec:
+      initContainers:
+        - name: wait-for-elasticsearch
+          image: busybox
+          command: ['sh', '-c', 'until nc -z dify-elasticsearch.dify.svc.cluster.local 9200; do echo waiting for elasticsearch; sleep 2; done;']
+      containers:
+      - name: kibana
+        image: docker.elastic.co/kibana/kibana:8.14.3
+        env:
+          - name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+            value: d1a66dfd-c4d3-4a0a-8290-2abcb83ab3aa
+          - name: NO_PROXY
+            value: localhost,127.0.0.1,dify-elasticsearch,dify-kibana,dify-elasticsearch.dify.svc.cluster.local,dify-kibana.dify.svc.cluster.local
+          - name: XPACK_SECURITY_ENABLED
+            value: "true"
+          - name: XPACK_SECURITY_ENROLLMENT_ENABLED
+            value: "false"
+          - name: XPACK_SECURITY_HTTP_SSL_ENABLED
+            value: "false"
+          - name: XPACK_FLEET_ISAIRGAPPED
+            value: "true"
+          - name: I18N_LOCALE
+            value: zh-CN
+          - name: SERVER_PORT
+            value: "5601"
+          - name: ELASTICSEARCH_HOSTS
+            value: http://dify-elasticsearch.dify.svc.cluster.local:9200
+        ports:
+          - containerPort: 5601
+        livenessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - curl -s http://localhost:5601 >/dev/null || exit 1
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-kibana
+  namespace: dify
+spec:
+  selector:
+    app: dify-kibana
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 5601
+      targetPort: 5601

@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-weaviate
+  name: dify-weaviate
+  namespace: dify
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-weaviate
+  name: dify-weaviate
+  namespace: dify
+rules:
+- apiGroups:
+  - "*"
+  resources:
+  - "*"
+  verbs:
+  - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-weaviate
+  name: dify-weaviate
+  namespace: dify
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dify-weaviate
+subjects:
+- kind: ServiceAccount
+  name: dify-weaviate
+
+# Weaviate env
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weaviate-env
+  namespace: dify
+data:
+  QUERY_DEFAULTS_LIMIT: "25"
+  AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+  PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+  DEFAULT_VECTORIZER_MODULE: "none"
+  AUTHENTICATION_APIKEY_ENABLED: "true"
+  AUTHENTICATION_APIKEY_ALLOWED_KEYS: "WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih"
+  AUTHENTICATION_APIKEY_USERS: "hello@dify.ai"
+  AUTHORIZATION_ADMINLIST_ENABLED: "true"
+  AUTHORIZATION_ADMINLIST_USERS: "hello@dify.ai"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-weaviate
+  namespace: dify
+spec:
+  selector:
+    matchLabels:
+      app: dify-weaviate
+  serviceName: "dify-weaviate"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: dify-weaviate
+    spec:
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: dify-weaviate
+      containers:
+      - name: dify-weaviate
+        image: semitechnologies/weaviate:1.19.0
+        ports:
+        - containerPort: 8080
+          name: weaviate-p
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1024Mi
+          requests:
+            cpu: 100m
+            memory: 102Mi
+        envFrom:
+        - configMapRef:
+            name: weaviate-env
+        volumeMounts:
+        - name: weaviate-data
+          mountPath: /var/lib/weaviate
+      volumes:
+      - name: weaviate-data
+        hostPath:
+          path: /app/dify/weaviate/data
+          type: DirectoryOrCreate
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: weaviate-data
+  #   spec:
+  #     accessModes: [ "ReadWriteOnce" ]
+  #     storageClassName: "openebs-hostpath"
+  #     resources:
+  #       requests:
+  #         storage: 20Gi
+
+# 建议使用PersistentVolume替代HostPath来避免安全风险
+# 注释中使用了openebs存储插件管理节点本地存储
+# It is recommended to use PersistentVolume instead of HostPath to avoid security risks 
+# The openebs storage plugin is used in the comment to manage local storage on nodes
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-weaviate
+  namespace: dify
+spec:
+  selector:
+    app: dify-weaviate
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: weaviate
+    protocol: TCP
+    port: 8080
+    targetPort: 8080

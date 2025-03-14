@@ -2,8 +2,8 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    app.kubernetes.io/instance: db-postgres
-  name: db-postgres
+    app.kubernetes.io/instance: dify-postgres
+  name: dify-postgres
   namespace: dify
 
 ---
@@ -11,8 +11,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    app.kubernetes.io/instance: db-postgres
-  name: db-postgres
+    app.kubernetes.io/instance: dify-postgres
+  name: dify-postgres
   namespace: dify
 rules:
 - apiGroups:
@@ -27,18 +27,17 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    app.kubernetes.io/instance: db-postgres
-  name: db-postgres
+    app.kubernetes.io/instance: dify-postgres
+  name: dify-postgres
   namespace: dify
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: db-postgres
+  name: dify-postgres
 subjects:
 - kind: ServiceAccount
-  name: db-postgres
+  name: dify-postgres
 
-# db Postgres Credentials
 ---
 apiVersion: v1
 kind: Secret
@@ -48,33 +47,34 @@ metadata:
 type: Opaque
 stringData:
   pg-username: "postgres"
-  pg-password: "nanmu2025"
-  pg-host: "db-postgres.dify.svc.cluster.local"
-  pg-port: "5432"
+  pg-password: "dify123456"
+
+# 指定你自己的postgres密码，这里是dify123456
+# Specify your own postgres password, here is dify123456
 
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: db-postgres
+  name: dify-postgres
   namespace: dify
 spec:
   selector:
     matchLabels:
-      app: db-postgres 
-  serviceName: "db-postgres"
+      app: dify-postgres 
+  serviceName: "dify-postgres"
   replicas: 1
   template:
     metadata:
       labels:
-        app: db-postgres
+        app: dify-postgres
     spec:
-      serviceAccountName: db-postgres
+      serviceAccountName: dify-postgres
       terminationGracePeriodSeconds: 10
       nodeSelector:
         kubernetes.io/os: linux
       containers:
-      - name: db-postgres
+      - name: dify-postgres
         image: postgres:15-alpine
         env:
         - name: PGUSER
@@ -107,53 +107,59 @@ spec:
           exec:
             command:
             - "pg_isready"
-            - "-U"
-            - "$(PGUSER)"
-            - "-d"
-            - "$(POSTGRES_DB)"
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 2
           successThreshold: 1
           failureThreshold: 10
         resources:
-          limits:
-            cpu: 500m
-            memory: 1Gi
           requests:
             cpu: 100m
             memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
         ports:
         - containerPort: 5432
           name: postgres-port
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-  - metadata:
-      name: postgres-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "openebs-hostpath"
-      resources:
-        requests:
-          storage: 10Gi
+      volumes:
+      - name: postgres-data
+        hostPath:
+          path: /app/dify/postgres/data
+          type: DirectoryOrCreate
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: postgres-data
+  #   spec:
+  #     accessModes: [ "ReadWriteOnce" ]
+  #     storageClassName: "openebs-hostpath"
+  #     resources:
+  #       requests:
+  #         storage: 10Gi
+
+# 建议使用PersistentVolume替代HostPath来避免安全风险
+# 注释中使用了openebs存储插件管理节点本地存储
+# It is recommended to use PersistentVolume instead of HostPath to avoid security risks 
+# The openebs storage plugin is used in the comment to manage local storage on nodes
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: db-postgres
+  name: dify-postgres
   namespace: dify
 spec:
   selector:
-    app: db-postgres
+    app: dify-postgres
   type: ClusterIP
-  # clusterIP: None
+  clusterIP: None
   ports:
   - name: postgres
     protocol: TCP
     port: 5432
     targetPort: 5432
 
-# db Postgres End
+

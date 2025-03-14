@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-redis
+  name: dify-redis
+  namespace: dify
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-redis
+  name: dify-redis
+  namespace: dify
+rules:
+- apiGroups:
+  - "*"
+  resources:
+  - "*"
+  verbs:
+  - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: dify-redis
+  name: dify-redis
+  namespace: dify
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dify-redis
+subjects:
+- kind: ServiceAccount
+  name: dify-redis
+
+# Redis Credentials
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-credentials
+  namespace: dify
+type: Opaque
+stringData:
+  redis-password: "dify123456"
+
+# 使用你自己的redis密码，这里是dify123456
+# Use your own redis password, here is dify123456
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dify-redis
+  namespace: dify
+spec:
+  selector:
+    matchLabels:
+      app: dify-redis
+  serviceName: "dify-redis"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: dify-redis
+    spec:
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: dify-redis
+      containers:
+      - name: dify-redis
+        image: redis:6-alpine
+        ports:
+        - containerPort: 6379
+          name: redis-p
+        command: ["redis-server", "--save", "20", "1", "--loglevel", "warning", "--requirepass", "$(REDIS_PASSWORD)"]
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1024Mi
+          requests:
+            cpu: 100m
+            memory: 102Mi
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-password
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        hostPath:
+          path: /app/dify/redis/data
+          type: DirectoryOrCreate
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: redis-data
+  #   spec:
+  #     accessModes: [ "ReadWriteOnce" ]
+  #     storageClassName: "openebs-hostpath"
+  #     resources:
+  #       requests:
+  #         storage: 10Gi
+
+# 建议使用PersistentVolume替代HostPath来避免安全风险
+# 注释中使用了openebs存储插件管理节点本地存储
+# It is recommended to use PersistentVolume instead of HostPath to avoid security risks 
+# The openebs storage plugin is used in the comment to manage local storage on nodes
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-redis
+  namespace: dify
+spec:
+  selector:
+    app: dify-redis
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: redis
+    protocol: TCP
+    port: 6379
+    targetPort: 6379
