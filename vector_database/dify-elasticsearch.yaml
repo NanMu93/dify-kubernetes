@@ -115,6 +115,7 @@ spec:
           hostPath:
             path: /app/dify/elasticsearch/data
             type: DirectoryOrCreate
+            accessMode: ReadWriteOnce
   # volumeClaimTemplates:
   #   - metadata:
   #       name: es-data

@@ -1,3 +1,6 @@
+#   CELERY_BROKER_URL: "redis://:dify123456@dify-redis.dify.svc.cluster.local:6379/1"
+#   REDIS_PASSWORD: "dify123456"
+#   DB_PASSWORD: "dify123456"
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -43,7 +46,6 @@ data:
   API_TOOL_DEFAULT_CONNECT_TIMEOUT: "10"
   API_TOOL_DEFAULT_READ_TIMEOUT: "60"
   DB_USERNAME: "postgres"
-  DB_PASSWORD: "dify123456"
   DB_HOST: "dify-postgres.dify.svc.cluster.local"
   DB_PORT: "5432"
   DB_DATABASE: "dify"
@@ -58,7 +60,6 @@ data:
   REDIS_HOST: "dify-redis.dify.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_USERNAME: ""
-  REDIS_PASSWORD: "dify123456"
   REDIS_USE_SSL: "false"
   REDIS_DB: "0"
   REDIS_USE_SENTINEL: "false"
@@ -70,7 +71,6 @@ data:
   REDIS_USE_CLUSTERS: "false"
   REDIS_CLUSTERS: ""
   REDIS_CLUSTERS_PASSWORD: ""
-  CELERY_BROKER_URL: "redis://:dify123456@dify-redis.dify.svc.cluster.local:6379/1"
   BROKER_USE_SSL: "false"
   CELERY_USE_SENTINEL: "false"
   CELERY_SENTINEL_MASTER_NAME: ""

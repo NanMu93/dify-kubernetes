@@ -18,18 +18,19 @@ data:
   PYTHON_ENV_INIT_TIMEOUT: "120"
   PLUGIN_MAX_EXECUTION_TIMEOUT: "600"
 
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: dify-plugin-daemon-pvc
-  namespace: dify
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: dify-plugin-daemon-pvc
+#   namespace: dify
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   storageClassName: openebs-hostpath
+#   resources:
+#     requests:
+#       storage: 10Gi
 
 ---
 apiVersion: apps/v1
@@ -55,18 +56,25 @@ spec:
       automountServiceAccountToken: false
       volumes:
       - name: dify-plugin-daemon-storage
-        persistentVolumeClaim:
-          claimName: dify-plugin-daemon-pvc
+        hostPath:
+          path: /app/dify/plugin_daemon/data
+          type: DirectoryOrCreate
+        # persistentVolumeClaim:
+        #   claimName: dify-plugin-daemon-pvc
+      initContainers:
+      - name: wait-for-dependencies
+        image: busybox
+        command: ["sh", "-c", "until nc -z dify-postgres.dify.svc.cluster.local 5432; do sleep 1; done"]
       containers:
       - name: dify-plugin-daemon
         image: langgenius/dify-plugin-daemon:0.0.3-local
         resources:
           limits:
-            memory: "1024Mi"
-            cpu: "2000m"
+            memory: 1Gi
+            cpu: 2
           requests:
-            memory: "256Mi"
-            cpu: "500m"
+            memory: 256Mi
+            cpu: 200m
         ports:
         - containerPort: 5003
           protocol: TCP
@@ -79,6 +87,19 @@ spec:
             name: dify-env
         - configMapRef:
             name: plugin-env
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-password
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pg-credentials
+              key: pg-password
+        - name: CELERY_BROKER_URL
+          value: "redis://:$(REDIS_PASSWORD)@dify-redis.dify.svc.cluster.local:6379/1"
         volumeMounts:
         - name: dify-plugin-daemon-storage
           mountPath: /app/storage

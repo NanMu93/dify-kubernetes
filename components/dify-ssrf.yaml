@@ -187,7 +187,7 @@ spec:
           mountPath: /var/spool/squid
         - name: ssrf-proxy-config
           mountPath: /etc/squid/squid.conf.template
-          subPath: custom.conf
+          subPath: squid.conf.template
         - name: ssrf-proxy-entrypoint
           mountPath: /tmp/
         command: [ "sh", "-c", "cp /tmp/docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh" ]
