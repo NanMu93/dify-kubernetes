@@ -40,7 +40,7 @@ spec:
         command: ["sh", "-c", "until nc -z dify-redis.dify.svc.cluster.local 6379 && nc -z dify-postgres.dify.svc.cluster.local 5432; do sleep 1; done"]
       containers:
       - name: dify-api
-        image: langgenius/dify-api:1.0.0
+        image: langgenius/dify-api:1.0.1
         envFrom:
         - configMapRef:
             name: dify-env

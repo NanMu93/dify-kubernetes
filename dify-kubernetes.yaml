@@ -317,6 +317,8 @@ data:
   SSRF_PROXY_HTTP_URL: "http://ssrf_proxy:3128"
   SSRF_PROXY_HTTPS_URL: "http://ssrf_proxy:3128"
   LOOP_NODE_MAX_COUNT: "100"
+  MAX_TOOLS_NUM: "10"
+  MAX_PARALLEL_LIMIT: "10"
   TEXT_GENERATION_TIMEOUT_MS: "60000"
   PGDATA: "/var/lib/postgresql/data/pgdata"
   SANDBOX_API_KEY: "dify-sandbox"
@@ -1216,7 +1218,7 @@ spec:
         command: ["sh", "-c", "until nc -z dify-redis.dify.svc.cluster.local 6379 && nc -z dify-postgres.dify.svc.cluster.local 5432; do sleep 1; done"]
       containers:
       - name: dify-api
-        image: langgenius/dify-api:1.0.0
+        image: langgenius/dify-api:1.0.1
         envFrom:
         - configMapRef:
             name: dify-env
@@ -1316,7 +1318,7 @@ spec:
         command: ["sh", "-c", "until nc -z dify-redis.dify.svc.cluster.local 6379 && nc -z dify-postgres.dify.svc.cluster.local 5432; do sleep 1; done"]
       containers:
       - name: dify-worker
-        image: langgenius/dify-api:1.0.0
+        image: langgenius/dify-api:1.0.1
         ports:
         - containerPort: 5001
           protocol: TCP
@@ -1408,6 +1410,8 @@ data:
   INDEXING_MAX_SEGMENTATION_TOKENS_LENGTH: ""
   PM2_INSTANCES: "2"
   LOOP_NODE_MAX_COUNT: "100"
+  MAX_TOOLS_NUM: "10"
+  MAX_PARALLEL_LIMIT: "10"
 
 ---
 apiVersion: apps/v1
@@ -1433,7 +1437,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: dify-web
-        image: langgenius/dify-web:1.0.0
+        image: langgenius/dify-web:1.0.1
         envFrom:
         - configMapRef:
             name: web-env
@@ -1574,19 +1578,6 @@ data:
         listen ${NGINX_PORT};
         server_name ${NGINX_SERVER_NAME};
 
-        # Rule 1: Handle application entry points (preserve /app/{id})
-        location ~ ^/app/[a-f0-9-]+$ {
-          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
-          include proxy.conf;
-        }
-
-        # Rule 2: Handle static resource requests (remove /app/{id} prefix)
-        location ~ ^/app/[a-f0-9-]+/(console/api/.*)$ {
-          rewrite ^/app/[a-f0-9-]+/(.*)$ /$1 break;
-          proxy_pass http://dify-api.dify.svc.cluster.local:5001;
-          include proxy.conf;
-        }
-
         location /console/api {
           proxy_pass http://dify-api.dify.svc.cluster.local:5001;
           include proxy.conf;
@@ -1639,6 +1630,9 @@ metadata:
 data:
   dify-nginx-entrypoint.sh: |
     #!/bin/bash
+
+    HTTPS_CONFIG=""
+
     if [ "${NGINX_HTTPS_ENABLED}" = "true" ]; then
         # Check if the certificate and key files for the specified domain exist
         if [ -n "${CERTBOT_DOMAIN}" ] && \
@@ -1659,6 +1653,7 @@ data:
         # Substitute the HTTPS_CONFIG in the default.conf.template with content from https.conf.template
         envsubst '${HTTPS_CONFIG}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
     fi
+    export HTTPS_CONFIG
 
     if [ "${NGINX_ENABLE_CERTBOT_CHALLENGE}" = "true" ]; then
         ACME_CHALLENGE_LOCATION='location /.well-known/acme-challenge/ { root /var/www/html; }'
@@ -1672,7 +1667,7 @@ data:
     envsubst "$env_vars" < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
     envsubst "$env_vars" < /etc/nginx/proxy.conf.template > /etc/nginx/proxy.conf
 
-    envsubst < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+    envsubst "$env_vars" < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
 
     # Start Nginx using the default entrypoint
     exec nginx -g 'daemon off;'
@@ -1867,7 +1862,7 @@ spec:
         command: ["sh", "-c", "until nc -z dify-postgres.dify.svc.cluster.local 5432; do sleep 1; done"]
       containers:
       - name: dify-plugin-daemon
-        image: langgenius/dify-plugin-daemon:0.0.3-local
+        image: langgenius/dify-plugin-daemon:0.0.4-local
         resources:
           limits:
             memory: 1Gi
