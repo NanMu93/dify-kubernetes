@@ -1,6 +1,7 @@
 # DIFY-KUBERNETES
 
 dify-kubernetes用于一键部署Dify的kubernetes集群。
+当前更新版本为Dify v1.0.1
 
 ## 安装
 

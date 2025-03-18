@@ -1,6 +1,7 @@
 # DIFY-KUBERNETES
 
 dify-kubernetes is used to deploy Dify's kubernetes cluster with one click.
+Current update version is Dify v1.0.1
 
 ## Installation
 
