@@ -872,6 +872,28 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: dify-sandbox-conf
+  namespace: dify
+data:
+  config.yaml: |
+    app:
+      port: 8194
+      debug: True
+      key: dify-sandbox
+    max_workers: 4
+    max_requests: 50
+    worker_timeout: 5
+    python_path: /usr/local/bin/python3
+    enable_network: True
+    allowed_syscalls:
+    proxy:
+      socks5: ''
+      http: ''
+      https: ''
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: dify-sandbox-env
   namespace: dify
 data:
@@ -921,6 +943,10 @@ spec:
           limits:
             cpu: 500m
             memory: 1Gi
+        volumeMounts:
+        - name: sandbox-conf
+          mountPath: /conf/config.yaml
+          subPath: config.yaml
         livenessProbe:
           exec:
             command:
@@ -930,6 +956,10 @@ spec:
         ports:
         - containerPort: 8194
         imagePullPolicy: IfNotPresent
+      volumes:
+      - name: sandbox-conf
+        configMap:
+          name: dify-sandbox-conf
 
 ---
 apiVersion: v1
