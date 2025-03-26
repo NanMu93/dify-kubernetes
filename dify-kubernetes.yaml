@@ -1142,7 +1142,8 @@ spec:
           mountPath: /etc/squid/squid.conf.template
           subPath: squid.conf.template
         - name: ssrf-proxy-entrypoint
-          mountPath: /tmp/
+          mountPath: /tmp/docker-entrypoint-mount.sh
+          subPath: docker-entrypoint-mount.sh
         command: [ "sh", "-c", "cp /tmp/docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh" ]
       volumes:
         - name: ssrf-proxy-config
@@ -1434,7 +1435,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      automountServiceAccountToken: false
+      # automountServiceAccountToken: false
       containers:
       - name: dify-web
         image: langgenius/dify-web:1.0.1
@@ -1693,7 +1694,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      automountServiceAccountToken: false
+      # automountServiceAccountToken: false
       initContainers:
       - name: wait-for-dependencies
         image: busybox
