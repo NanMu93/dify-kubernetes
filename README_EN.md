@@ -26,7 +26,7 @@ You can configure your own `redis` and `postgres` passwords in the Secret.
 
 Currently, the debugging port for the Dify plugin has been changed to the NodePort type, with the port number set to `31000`. The IP address corresponds to the Kubernetes node IP where the `dify-plugin-debug` `service` is running. 
 
-If you need to develop your own plugins, refer to the official documentation: [text](https://docs.dify.ai/zh-hans/plugins/quick-start/develop-plugins)
+If you need to develop your own plugins, refer to the official documentation: [develop plugins](https://docs.dify.ai/zh-hans/plugins/quick-start/develop-plugins)
 
 ## Improvements
 
