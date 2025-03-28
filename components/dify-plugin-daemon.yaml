@@ -67,7 +67,7 @@ spec:
         command: ["sh", "-c", "until nc -z dify-postgres.dify.svc.cluster.local 5432; do sleep 1; done"]
       containers:
       - name: dify-plugin-daemon
-        image: langgenius/dify-plugin-daemon:0.0.4-local
+        image: langgenius/dify-plugin-daemon:0.0.6-local
         resources:
           limits:
             memory: 1Gi
@@ -115,11 +115,24 @@ spec:
   selector:
     app: dify-plugin-daemon
   ports:
-  - port: 5003
-    targetPort: 5003
-    protocol: TCP
-    name: debug-port
   - port: 5002
     targetPort: 5002
     protocol: TCP
     name: service-port
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dify-plugin-debug
+  namespace: dify
+spec:
+  type: NodePort
+  selector:
+    app: dify-plugin-daemon
+  ports:
+  - port: 5003
+    targetPort: 5003
+    nodePort: 31000
+    protocol: TCP
+    name: debug-port

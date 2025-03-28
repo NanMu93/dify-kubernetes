@@ -1,7 +1,7 @@
 # DIFY-KUBERNETES
 
 dify-kubernetes用于一键部署Dify的kubernetes集群。
-当前更新版本为Dify v1.0.1
+当前更新版本为Dify v1.1.3
 
 ## 安装
 
@@ -21,6 +21,11 @@ dify-kubernetes用于一键部署Dify的kubernetes集群。
 ###  password
 
 可以在`Secret`中配置你自己的`redis`、`postgres`密码。
+
+## dify plugin 开发调试接口
+
+目前将dify plugin的调试端口改为NodePort类型，端口号为`31000` ，IP地址为你的运行`dify-plugin-debug` `service`的kubernetes节点IP。
+如果有需要自己开发插件，参照官方文档：[text](https://docs.dify.ai/zh-hans/plugins/quick-start/develop-plugins)
 
 ## 改进
 1. 可以使用PersistentVolume替代HostPath以提高存储的安全性。

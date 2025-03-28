@@ -43,7 +43,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: dify-web
-        image: langgenius/dify-web:1.0.1
+        image: langgenius/dify-web:1.1.3
         envFrom:
         - configMapRef:
             name: web-env

@@ -1,7 +1,7 @@
 # DIFY-KUBERNETES
 
 dify-kubernetes is used to deploy Dify's kubernetes cluster with one click.
-Current update version is Dify v1.0.1
+Current update version is Dify v1.1.3
 
 ## Installation
 
@@ -21,6 +21,12 @@ You can modify the environment variable configuration in the `dify-env` and othe
 ###  password
 
 You can configure your own `redis` and `postgres` passwords in the Secret.
+
+## Dify Plugin Development and Debugging Interface
+
+Currently, the debugging port for the Dify plugin has been changed to the NodePort type, with the port number set to `31000`. The IP address corresponds to the Kubernetes node IP where the `dify-plugin-debug` `service` is running. 
+
+If you need to develop your own plugins, refer to the official documentation: [text](https://docs.dify.ai/zh-hans/plugins/quick-start/develop-plugins)
 
 ## Improvements
 

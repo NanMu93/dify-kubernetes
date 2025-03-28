@@ -138,7 +138,7 @@ data:
   HTTP_PORT: "3128"
   COREDUMP_DIR: "/var/spool/squid"
   REVERSE_PROXY_PORT: "8194"
-  SANDBOX_HOST: "dify-sandbox"
+  SANDBOX_HOST: "dify-sandbox.dify.svc.cluster.local"
   SANDBOX_PORT: "8194"
 
 ---
@@ -189,7 +189,8 @@ spec:
           mountPath: /etc/squid/squid.conf.template
           subPath: squid.conf.template
         - name: ssrf-proxy-entrypoint
-          mountPath: /tmp/
+          mountPath: /tmp/docker-entrypoint-mount.sh
+          subPath: docker-entrypoint-mount.sh
         command: [ "sh", "-c", "cp /tmp/docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh" ]
       volumes:
         - name: ssrf-proxy-config
